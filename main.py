@@ -1,7 +1,9 @@
+from random import randint
 from telegram.ext import Updater, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CommandHandler
 from threading import Thread
+from docx import Document
 import telegram
 import datetime
 import schedule
@@ -12,10 +14,11 @@ import time
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # для отправки сообщений с картинкой
-def send_photo_with_caption(update, context, caption, markup=None):
-    photo_path = 'Image.jpg'
+def send_photo_with_caption(update, context, caption, markup=None, photo_path=None):
+    if not photo_path:
+        photo_path = 'https://drive.google.com/drive-viewer/AKGpihYy5z79VqmYw8FoXAbGjSgam-9G4xm8Zu80_h6JDbD01yB5UV7Xi5g2dsGwQsGbm5Xx3SxIb6w1D-QrLAzPehaxf8Fr9Sm1sA=s2560'
     chat_id = update.effective_chat.id
-    context.bot.send_photo(chat_id=chat_id, photo=open(photo_path, 'rb'), caption=caption, reply_markup=markup)
+    context.bot.send_photo(chat_id=chat_id, photo=photo_path, caption=caption, reply_markup=markup)
 
 
 # для отправки сообщений без картинки
@@ -23,6 +26,95 @@ def send_messages(update, context, text, markup=None):
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
 
+# функция регулирующая задания, выдает на выходе рандомный идентификатор
+def task(topic_name):
+    within_topic = False
+    identifiers = []
+    next_is_identifier = False
+    global decided_tasks
+    doc = Document('0. База заданий.docx')
+
+    # если выполнено больше 10 заданий, не выдаем идентификатор
+    try:
+        if len(decided_tasks) >= 10:
+            return 0
+    except NameError:
+        decided_tasks = []
+
+    # Ищем раздел
+    for paragraph in doc.paragraphs:
+        if topic_name in paragraph.text:
+            within_topic = True
+        elif ("Раздел:" in paragraph.text) or ("Тема:" in paragraph.text):
+            within_topic = False
+        # Ищем Идентификатор
+        if within_topic and ("Идентификатор:" in paragraph.text):
+            next_is_identifier = True
+        elif within_topic and next_is_identifier:
+            # Собираем идентификаторы в список
+            identifier = paragraph.text.strip()
+            identifiers.append(identifier)
+            next_is_identifier = False
+    # Перебираем из доступного списка заданий те, что еще не решались за эти сутки
+    task_number = identifiers[randint(0, len(identifiers) - 1)]
+    while task_number in decided_tasks:
+        task_number = identifiers[randint(0, len(identifiers))]
+    # Записываем задание в список выполненных и отдаем его на выход
+    decided_tasks.append(task_number)
+
+    return task_number
+
+# функция достает задание для тренажера из файла с заданиями
+def get_task_text(topic_name, task_number, header):
+    doc = Document('0. База заданий.docx')
+    text = []
+    topic_found = False
+    task_found = False
+    collecting_text = False
+    for para in doc.paragraphs:
+        # Проверяем название темы
+        if para.text.strip() == topic_name:
+            topic_found = True
+            continue
+
+        # Проверяем номер задания, если тема найдена
+        if topic_found:
+            if para.text.startswith(task_number):
+                task_found = True
+                continue
+
+            if task_found:
+                if para.text.startswith('Идентификатор'):
+                    break  # Выходим из цикла, если нашли новое задание
+
+                # Проверяем, является ли текущий абзац заголовком
+                if para.text.strip() == header:
+                    collecting_text = True  # Начинаем собирать текст
+                    continue
+
+                # Прерываем сбор текста при новом заголовке
+                if any(para.text.startswith(h) for h in
+                       ["Текст:", "Изображение:", "Ключ:", "Комментарий:"]) and collecting_text:
+                    break  # Если нашли другой заголовок, выходим
+
+                # Собираем текст
+                if collecting_text:
+                    if para.text.strip() != '':
+                        text.append(para.text.strip())
+
+    return '\n'.join(text)
+
+# обнуляем список решенных заданий
+def reset_tasks():
+    global decided_tasks
+    decided_tasks = []
+
+# устанавливаем обнуление на 00:00 каждого дня
+def decided_tasks_reset():
+    schedule.every().day.at("00:00").do(reset_tasks)
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 # диалог установка таймера напоминаний
 def timer(update, context, notice):
@@ -41,7 +133,8 @@ def timer(update, context, notice):
 # сообщение для отправки напоминания
 def send_reminder(context, chat_id: int):
     keyboard = [
-        [InlineKeyboardButton('В меню', callback_data="В меню")]
+        [InlineKeyboardButton('Согласиться', callback_data="Попрактиковаться")],
+        [InlineKeyboardButton('Отказаться', callback_data="В меню")]
     ]
     markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
     context.bot.send_message(chat_id, text='Привет, пора позаниматься', reply_markup=markup)
@@ -118,8 +211,18 @@ def practice(update, context):
 
 # Раздел Биология как наука Практика
 def biology_as_science_prac(update, context):
-    pass
-
+    # получаем идентификатор случайного задания
+    task_number = task('Биология как наука')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Биология как наука', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Биология как наука', task_number, 'Текст:'), None,
+                                    get_task_text('Биология как наука', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Биология как наука', task_number, 'Текст:'))
 
 # Раздел молекулярная и клеточная биология Практика
 def molecular_and_cellular_biology_main_prac(update, context):
@@ -137,47 +240,146 @@ def molecular_and_cellular_biology_main_prac(update, context):
 
 # Раздел Генетика Практика
 def genetics_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Генетика')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Генетика', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Генетика', task_number, 'Текст:'), None,
+                                    get_task_text('Генетика', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Генетика', task_number, 'Текст:'))
 
 
 # Раздел Биотехнология Практика
 def biotechnology_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Биотехнология')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Биотехнология', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Биотехнология', task_number, 'Текст:'), None,
+                                    get_task_text('Биотехнология', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Биотехнология', task_number, 'Текст:'))
 
 
 # Раздел Селекция Практика
 def breeding_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Селекция')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Селекция', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Селекция', task_number, 'Текст:'), None,
+                                    get_task_text('Селекция', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Селекция', task_number, 'Текст:'))
 
 
 # Тема История и методы цитологии Раздела Молекулярная и клеточная биология Практика
 def history_and_methods_citology_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('История и методы цитологии')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('История и методы цитологии', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('История и методы цитологии', task_number, 'Текст:'), None,
+                                    get_task_text('История и методы цитологии', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('История и методы цитологии', task_number, 'Текст:'))
 
 
 # Тема Биохимия Раздела Молекулярная и клеточная биология Практика
 def biochemistry_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Биохимия')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Биохимия', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Биохимия', task_number, 'Текст:'), None,
+                                    get_task_text('Биохимия', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Биохимия', task_number, 'Текст:'))
 
 
 # Тема Строение клетки Раздела Молекулярная и клеточная биология Практика
 def cell_structure_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Строение клетки')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Строение клетки', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Строение клетки', task_number, 'Текст:'), None,
+                                    get_task_text('Строение клетки', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Строение клетки', task_number, 'Текст:'))
 
 
 # Тема Метаболизм Раздела Молекулярная и клеточная биология Практика
 def metabolism_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Метаболизм')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Метаболизм', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Метаболизм', task_number, 'Текст:'), None,
+                                    get_task_text('Метаболизм', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Метаболизм', task_number, 'Текст:'))
 
 
 # Тема Матричные реакции Раздела Молекулярная и клеточная биология Практика
 def matrix_reactions_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Матричные реакции')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Матричные реакции', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Матричные реакции', task_number, 'Текст:'), None,
+                                    get_task_text('Матричные реакции', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Матричные реакции', task_number, 'Текст:'))
 
 
 # Тема Клеточный цикл Раздела Молекулярная и клеточная биология Практика
 def cell_cycle_prac(update, context):
-    pass
+    # получаем идентификатор случайного задания
+    task_number = task('Клеточный цикл')
+    # проверяем, выполнил ли пользователь норму на сутки
+    if task_number == 0:
+        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+    else:
+        # проверяем, есть ли изображение в задании
+        if get_task_text('Клеточный цикл', task_number, 'Изображение:'):
+            send_photo_with_caption(update, context, get_task_text('Клеточный цикл', task_number, 'Текст:'), None,
+                                    get_task_text('Клеточный цикл', task_number, 'Изображение:'))
+        else:
+            send_messages(update, context, text=get_task_text('Клеточный цикл', task_number, 'Текст:'))
 
 
 # диалог Теория
@@ -449,6 +651,8 @@ def main():
     dp = updater.dispatcher
     scheduler_thread = Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
+    thread = Thread(target=decided_tasks_reset)
+    thread.start()
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CallbackQueryHandler(button))
     dp.add_handler(MessageHandler(Filters.text, handle_message))
