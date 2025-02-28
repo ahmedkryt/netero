@@ -156,29 +156,54 @@ def run_scheduler():
         time.sleep(1)
 
 
-# ввод пользователя для таймера
+
 def handle_message(update, context):
-    keyboard = [
-        [InlineKeyboardButton('Назад в меню', callback_data="В меню")]
-    ]
-    markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
-    # время, которое ввел пользователь
-    user_response = update.message.text
-    # проверяем на валидность и отправляем на установку
-    try:
-        if datetime.datetime.strptime(user_response, '%H:%M').time():
-            # если время записано без предшествующего нуля, корректируем данные
-            if len(user_response.split(':')[0]) == 1:
-                user_response = '0' + user_response
-            if len(user_response.split(':')[1]) == 1:
-                user_response = user_response[:-1] + '0' + user_response[-1]
-            # устанавливаем
-            set_reminder(update, context, user_response)
-            # отвечаем пользователю
-            context.bot.send_message(chat_id=update.effective_chat.id,
-                                     text=f'Будем напоминать каждый день в {user_response} — точно не забудешь!', reply_markup=markup)
-    except(IndexError, ValueError):
-        update.message.reply_text(f'Не понимаю, попробуй еще раз', reply_markup=markup)
+    global user_status
+    global task_key
+    global decided_tasks
+    # ввод пользователя для таймера
+    if user_status == 'уведомления':
+        keyboard = [
+            [InlineKeyboardButton('Назад в меню', callback_data="В меню")]
+        ]
+        markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
+        # время, которое ввел пользователь
+        user_response = update.message.text
+        # проверяем на валидность и отправляем на установку
+        try:
+            if datetime.datetime.strptime(user_response, '%H:%M').time():
+                # если время записано без предшествующего нуля, корректируем данные
+                if len(user_response.split(':')[0]) == 1:
+                    user_response = '0' + user_response
+                if len(user_response.split(':')[1]) == 1:
+                    user_response = user_response[:-1] + '0' + user_response[-1]
+                # устанавливаем
+                set_reminder(update, context, user_response)
+                # отвечаем пользователю
+                context.bot.send_message(chat_id=update.effective_chat.id,
+                                         text=f'Будем напоминать каждый день в {user_response} — точно не забудешь!', reply_markup=markup)
+        except(IndexError, ValueError):
+            update.message.reply_text(f'Не понимаю, попробуй еще раз', reply_markup=markup)
+    # ввод пользователя в качестве ответа на задание
+    elif user_status == 'тренажер':
+        # проверка ответа
+        try:
+            keyboard = [
+                [InlineKeyboardButton('Следующее задание', callback_data="Попрактиковаться")]
+            ]
+            markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
+            user_answer = update.message.text
+            if user_answer.lower == task_key.lower():
+                text = (f'Молодец, верно!\n'
+                        f'Выполнено {len(decided_tasks)*10}% нормы')
+                context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=markup)
+            else:
+                text = (f'Дурак! Неверно\n'
+                        f'Ключ: {task_key}\n'
+                        f'Выполнено {len(decided_tasks)*10}% нормы')
+                context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=markup)
+        except(NameError):
+            pass
 
 
 # диалог Напоминания
@@ -211,18 +236,21 @@ def practice(update, context):
 
 # Раздел Биология как наука Практика
 def biology_as_science_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Биология как наука')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Биология как наука', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Биология как наука', task_number, 'Текст:'), None,
                                     get_task_text('Биология как наука', task_number, 'Изображение:'))
         else:
             send_messages(update, context, text=get_task_text('Биология как наука', task_number, 'Текст:'))
+
 
 # Раздел молекулярная и клеточная биология Практика
 def molecular_and_cellular_biology_main_prac(update, context):
@@ -240,12 +268,14 @@ def molecular_and_cellular_biology_main_prac(update, context):
 
 # Раздел Генетика Практика
 def genetics_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Генетика')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Генетика', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Генетика', task_number, 'Текст:'), None,
@@ -256,12 +286,14 @@ def genetics_prac(update, context):
 
 # Раздел Биотехнология Практика
 def biotechnology_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Биотехнология')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Биотехнология', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Биотехнология', task_number, 'Текст:'), None,
@@ -272,12 +304,14 @@ def biotechnology_prac(update, context):
 
 # Раздел Селекция Практика
 def breeding_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Селекция')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Селекция', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Селекция', task_number, 'Текст:'), None,
@@ -288,12 +322,14 @@ def breeding_prac(update, context):
 
 # Тема История и методы цитологии Раздела Молекулярная и клеточная биология Практика
 def history_and_methods_citology_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('История и методы цитологии')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('История и методы цитологии', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('История и методы цитологии', task_number, 'Текст:'), None,
@@ -304,12 +340,14 @@ def history_and_methods_citology_prac(update, context):
 
 # Тема Биохимия Раздела Молекулярная и клеточная биология Практика
 def biochemistry_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Биохимия')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Биохимия', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Биохимия', task_number, 'Текст:'), None,
@@ -320,12 +358,14 @@ def biochemistry_prac(update, context):
 
 # Тема Строение клетки Раздела Молекулярная и клеточная биология Практика
 def cell_structure_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Строение клетки')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Строение клетки', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Строение клетки', task_number, 'Текст:'), None,
@@ -336,12 +376,14 @@ def cell_structure_prac(update, context):
 
 # Тема Метаболизм Раздела Молекулярная и клеточная биология Практика
 def metabolism_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Метаболизм')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Метаболизм', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Метаболизм', task_number, 'Текст:'), None,
@@ -352,12 +394,14 @@ def metabolism_prac(update, context):
 
 # Тема Матричные реакции Раздела Молекулярная и клеточная биология Практика
 def matrix_reactions_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Матричные реакции')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Матричные реакции', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Матричные реакции', task_number, 'Текст:'), None,
@@ -368,12 +412,14 @@ def matrix_reactions_prac(update, context):
 
 # Тема Клеточный цикл Раздела Молекулярная и клеточная биология Практика
 def cell_cycle_prac(update, context):
+    global task_key
     # получаем идентификатор случайного задания
     task_number = task('Клеточный цикл')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
         send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
     else:
+        task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
         # проверяем, есть ли изображение в задании
         if get_task_text('Клеточный цикл', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Клеточный цикл', task_number, 'Текст:'), None,
@@ -526,38 +572,47 @@ def button(update, context):
     query = update.callback_query
     variant = query.data
     query.answer()
+    global user_status
 
     if variant == 'Учусь в 10 классе':
         update.effective_chat.send_message("Хвалю за решение начать готовиться уже сейчас!")
         grade = 10
         time.sleep(2)
+        user_status = 'menu'
         menu(update, context)
     if variant == 'Учусь в 11 классе':
         update.effective_chat.send_message('Самое время начать подготовку!')
         grade = 11
         time.sleep(2)
+        user_status = 'menu'
         menu(update, context)
     if variant == 'У меня gap year':
         update.effective_chat.send_message('Уже знаком с форматом ЕГЭ, да? Тогда вперёд ботать, сотка сама себя не получит.')
         grade = 12
         time.sleep(2)
+        user_status = 'menu'
         menu(update, context)
     if variant == 'На разведке':
         update.effective_chat.send_message('Исследуй, странник. Может, наткнёшься на что-нибудь интересное...')
         time.sleep(2)
+        user_status = 'menu'
         menu(update, context)
 
     if variant == 'Разобраться с теорией':
         conspect(update, context)
+        user_status = 'теория'
     if variant == 'Попрактиковаться':
         practice(update, context)
+        user_status = 'тренажер'
     if variant == 'Настроить уведомления':
         reminder(update, context)
 
     if variant == 'В меню':
+        user_status = 'menu'
         menu(update, context)
 
     if variant == 'Время уведомлений':
+        user_status = 'уведомления'
         timer(update, context, True)
     if variant == 'Отказаться от уведомлений':
         timer(update, context, False)
