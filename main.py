@@ -31,15 +31,16 @@ def task(topic_name):
     within_topic = False
     identifiers = []
     next_is_identifier = False
-    global decided_tasks
+    global decided_day_tasks
+    global grade
     doc = Document('0. База заданий.docx')
-
+    norm = 10 if grade == 10 else 20
     # если выполнено больше 10 заданий, не выдаем идентификатор
     try:
-        if len(decided_tasks) >= 10:
+        if len(decided_day_tasks) >= norm:
             return 0
     except NameError:
-        decided_tasks = []
+        decided_day_tasks = []
 
     # Ищем раздел
     for paragraph in doc.paragraphs:
@@ -57,10 +58,10 @@ def task(topic_name):
             next_is_identifier = False
     # Перебираем из доступного списка заданий те, что еще не решались за эти сутки
     task_number = identifiers[randint(0, len(identifiers) - 1)]
-    while task_number in decided_tasks:
+    while task_number in decided_day_tasks:
         task_number = identifiers[randint(0, len(identifiers))]
     # Записываем задание в список выполненных и отдаем его на выход
-    decided_tasks.append(task_number)
+    decided_day_tasks.append(task_number)
 
     return task_number
 
@@ -106,8 +107,11 @@ def get_task_text(topic_name, task_number, header):
 
 # обнуляем список решенных заданий
 def reset_tasks():
+    global decided_day_tasks
     global decided_tasks
-    decided_tasks = []
+    for i in decided_day_tasks:
+        decided_tasks.append(i)
+    decided_day_tasks = []
 
 # устанавливаем обнуление на 00:00 каждого дня
 def decided_tasks_reset():
@@ -119,14 +123,15 @@ def decided_tasks_reset():
 # диалог установка таймера напоминаний
 def timer(update, context, notice):
     keyboard = [
-        [InlineKeyboardButton('Назад в меню', callback_data="В меню")]
+        [InlineKeyboardButton('Назад в меню', callback_data="В меню")],
+        [InlineKeyboardButton('К задачам', callback_data="Попрактиковаться")]
     ]
     markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
     if notice:
-        send_messages(update, context, '''Напиши, когда прислать уведомление, в такой форме: __:__
+        send_messages(update, context, '''Напиши удобное для тебя время в такой форме: __:__
 Например, 09:00''')
     else:
-        send_messages(update, context, 'Что ж, твой выбор.', markup)
+        send_messages(update, context, 'Ну как хочешь 😔', markup)
         schedule.clear()
 
 
@@ -160,11 +165,12 @@ def run_scheduler():
 def handle_message(update, context):
     global user_status
     global task_key
-    global decided_tasks
+    global decided_day_tasks
     # ввод пользователя для таймера
     if user_status == 'уведомления':
         keyboard = [
-            [InlineKeyboardButton('Назад в меню', callback_data="В меню")]
+            [InlineKeyboardButton('Назад в меню', callback_data="В меню")],
+            [InlineKeyboardButton('К задачам', callback_data="Попрактиковаться")]
         ]
         markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
         # время, которое ввел пользователь
@@ -181,11 +187,13 @@ def handle_message(update, context):
                 set_reminder(update, context, user_response)
                 # отвечаем пользователю
                 context.bot.send_message(chat_id=update.effective_chat.id,
-                                         text=f'Будем напоминать каждый день в {user_response} — точно не забудешь!', reply_markup=markup)
+                                         text=f'Теперь точно не забудешь!', reply_markup=markup)
         except(IndexError, ValueError):
             update.message.reply_text(f'Не понимаю, попробуй еще раз', reply_markup=markup)
     # ввод пользователя в качестве ответа на задание
     elif user_status == 'тренажер':
+        global grade
+        norm = 10 if grade == 10 else 20
         # проверка ответа
         try:
             keyboard = [
@@ -193,14 +201,31 @@ def handle_message(update, context):
             ]
             markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
             user_answer = update.message.text
-            if user_answer.lower == task_key.lower():
-                text = (f'Молодец, верно!\n'
-                        f'Выполнено {len(decided_tasks)*10}% нормы')
+            if '/' in task_key:
+                key_values_list = task_key.split(" / ")
+                print(key_values_list)
+                print(user_answer)
+                if user_answer.lower() in key_values_list:
+                    text = (f'🟢 Верно!\n'
+                            f'Ключ: {task_key}\n'
+                            f'Выполнено {int(len(decided_day_tasks)/(norm/100))}% нормы')
+                    context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=markup)
+                else:
+                    text = (f'🔴 Неверно\n'
+                            f'Ключ: {task_key}\n'
+                            f'Выполнено {int(len(decided_day_tasks)/(norm/100))}% нормы')
+                    context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=markup)
+
+            elif set(user_answer.lower()) == set(task_key.lower()):
+
+                text = (f'🟢 Верно!\n'
+                        f'Ключ: {task_key}\n'
+                        f'Выполнено {int(len(decided_day_tasks)/(norm/100))}% нормы')
                 context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=markup)
             else:
-                text = (f'Дурак! Неверно\n'
+                text = (f'🔴 Неверно\n'
                         f'Ключ: {task_key}\n'
-                        f'Выполнено {len(decided_tasks)*10}% нормы')
+                        f'Выполнено {int(len(decided_day_tasks)/(norm/100))}% нормы')
                 context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=markup)
         except(NameError):
             pass
@@ -213,7 +238,20 @@ def reminder(update, context):
         [InlineKeyboardButton('Отказаться от уведомлений', callback_data="Отказаться от уведомлений")],
     ]
     markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
-    send_messages(update, context, 'Настроить уведомления', markup)
+    send_photo_with_caption(update, context, 'Настроить уведомления', markup)
+
+
+# Приветственное сообщение для первой сессии перед тренажером
+def start_prac(update, context):
+    global first_session
+    first_session = False
+    caption = '''График тренировок зависит от года обучения, так что признавайся!'''
+    keyboard = [
+        [InlineKeyboardButton('Я в 10 классе', callback_data="10 класс")],
+        [InlineKeyboardButton('Я в 11 классе', callback_data="11 класс")]
+        ]
+    markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
+    send_messages(update, context, caption, markup)
 
 
 # Диалог Практика
@@ -241,9 +279,10 @@ def biology_as_science_prac(update, context):
     task_number = task('Биология как наука')
     # проверяем, выполнил ли пользователь норму на сутки
     if task_number == 0:
-        send_messages(update, context, text='Хватит с тебя на сегодня. Беги отдыхать')
+        send_messages(update, context, text='Норма выполнена!')
     else:
         task_key = get_task_text('Биология как наука', task_number, 'Ключ:')
+        print(task_key)
         # проверяем, есть ли изображение в задании
         if get_task_text('Биология как наука', task_number, 'Изображение:'):
             send_photo_with_caption(update, context, get_task_text('Биология как наука', task_number, 'Текст:'), None,
@@ -430,21 +469,22 @@ def cell_cycle_prac(update, context):
 
 # диалог Теория
 def conspect(update, context):
+    caption = '''❕ Советуем изучать конспекты по порядку — темы сверху помогут лучше разобраться в тех, что идут ниже.
+
+Выбери раздел:'''
     keyboard = [
         [InlineKeyboardButton('Биология как наука', callback_data="Биология как наука теория")],
         [InlineKeyboardButton('Молекулярная и клеточная биология', callback_data="Молекулярная биология теория")],
         [InlineKeyboardButton('Генетика', callback_data="Генетика теория")],
-        [InlineKeyboardButton('Биотехнология', callback_data="Биотехнология теория")],
-        [InlineKeyboardButton('Селекция', callback_data="Селекция теория")],
-        # [InlineKeyboardButton('Организм как биосистема', callback_data="Организм как биосистема теория")],
-        # [InlineKeyboardButton('Многообразие органического мира', callback_data="Многообразие органического мира теория")],
-        # [InlineKeyboardButton('Анатомия и физиология человека', callback_data="Анатомия и физиология человека теория")],
-        # [InlineKeyboardButton('Эволюция', callback_data="Эволюция теория")],
-        # [InlineKeyboardButton('Экология', callback_data="Экология теория")],
+        [InlineKeyboardButton('Биотехнология и селекция', callback_data="Биотехнология и Селекция теория")],
+        [InlineKeyboardButton('Многообразие органического мира', callback_data="Многообразие мира теория")],
+        [InlineKeyboardButton('Анатомия и физиология человека', callback_data="Анатомия и физиология теория")],
+        [InlineKeyboardButton('Эволюция', callback_data="Эволюция теория")],
+        [InlineKeyboardButton('Экология', callback_data="Экология теория")],
         [InlineKeyboardButton('В меню', callback_data="В меню")]
     ]
     markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
-    send_messages(update, context, 'Выбери раздел', markup)
+    send_messages(update, context, caption, markup)
 
 
 # Раздел Биология как наука Теория
@@ -484,17 +524,10 @@ def genetics_con(update, context):
                              disable_web_page_preview=True)
 
 
-# Раздел Биотехнология Теория
+# Раздел Биотехнология и Селекция Теория
 def biotechnology_con(update, context):
-    text = '''<a href='https://docs.google.com/document/d/1ipgZOoMw1KO1PKInvnStYFLgU7xI2F5ASkWpXyx1Tdo/edit?usp=sharing'>📑 Биотехнология</a>'''
-    chat_id = update.effective_chat.id
-    context.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML,
-                             disable_web_page_preview=True)
-
-
-# Раздел Селекция Теория
-def breeding_con(update, context):
-    text = '''<a href='https://docs.google.com/document/d/16cYkwZXNVub2ylcaCYR5E1m4F8Pdx8BAQ7YR7-1KTlA/edit?usp=drive_link'>📑 Селекция</a>'''
+    text = '''<a href='https://docs.google.com/document/d/1ipgZOoMw1KO1PKInvnStYFLgU7xI2F5ASkWpXyx1Tdo/edit?usp=sharing'>📑 Биотехнология</a>
+<a href='https://docs.google.com/document/d/16cYkwZXNVub2ylcaCYR5E1m4F8Pdx8BAQ7YR7-1KTlA/edit?usp=drive_link'>📑 Селекция</a>'''
     chat_id = update.effective_chat.id
     context.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML,
                              disable_web_page_preview=True)
@@ -573,37 +606,32 @@ def button(update, context):
     variant = query.data
     query.answer()
     global user_status
-
-    if variant == 'Учусь в 10 классе':
-        update.effective_chat.send_message("Хвалю за решение начать готовиться уже сейчас!")
+    global first_session
+    global grade
+    if variant == 'Преамбула':
+        advent(update, context)
+    if variant == '10 класс':
+        send_photo_with_caption(update, context, '''🐣 Твоя норма — 10 заданий каждый день. 
+Чтобы не забывать о подготовке, можешь настроить уведомления. Я или Ив будем тебе писать.''')
         grade = 10
         time.sleep(2)
-        user_status = 'menu'
-        menu(update, context)
-    if variant == 'Учусь в 11 классе':
-        update.effective_chat.send_message('Самое время начать подготовку!')
+        reminder(update, context)
+    if variant == '11 класс':
+        send_photo_with_caption(update, context, '''🐥 Твоя норма — 20 заданий каждый день.
+Чтобы не забывать о подготовке, можешь настроить уведомления. Я или Ив будем тебе писать.''')
         grade = 11
         time.sleep(2)
-        user_status = 'menu'
-        menu(update, context)
-    if variant == 'У меня gap year':
-        update.effective_chat.send_message('Уже знаком с форматом ЕГЭ, да? Тогда вперёд ботать, сотка сама себя не получит.')
-        grade = 12
-        time.sleep(2)
-        user_status = 'menu'
-        menu(update, context)
-    if variant == 'На разведке':
-        update.effective_chat.send_message('Исследуй, странник. Может, наткнёшься на что-нибудь интересное...')
-        time.sleep(2)
-        user_status = 'menu'
-        menu(update, context)
+        reminder(update, context)
 
     if variant == 'Разобраться с теорией':
-        conspect(update, context)
         user_status = 'теория'
+        conspect(update, context)
     if variant == 'Попрактиковаться':
-        practice(update, context)
         user_status = 'тренажер'
+        if first_session:
+            start_prac(update, context)
+        else:
+            practice(update, context)
     if variant == 'Настроить уведомления':
         reminder(update, context)
 
@@ -635,10 +663,8 @@ def button(update, context):
         cell_cycle_con(update, context)
     if variant == 'Генетика теория':
         genetics_con(update, context)
-    if variant == 'Биотехнология теория':
+    if variant == 'Биотехнология и Селекция теория':
         biotechnology_con(update, context)
-    if variant == 'Селекция теория':
-        breeding_con(update, context)
     # практика
     if variant == 'Биология как наука практика':
         biology_as_science_prac(update, context)
@@ -666,11 +692,15 @@ def button(update, context):
 
 # основное окно
 def menu(update, context):
-    caption = 'Чем хочешь заняться?'
+    caption = 'Чем займемся?'
     keyboard = [
-        [InlineKeyboardButton('Разобраться с теорией', callback_data="Разобраться с теорией")],
-         [InlineKeyboardButton('Попрактиковаться', callback_data="Попрактиковаться")],
-         [InlineKeyboardButton('Настроить уведомления', callback_data="Настроить уведомления")]
+        [InlineKeyboardButton('Изучить конспект', callback_data="Разобраться с теорией")],
+        [InlineKeyboardButton('Потренировать знание теории', callback_data="Zero")],
+        [InlineKeyboardButton('Потренировать решение заданий', callback_data="Попрактиковаться")],
+        [InlineKeyboardButton('Пройти квест', callback_data="Zero")],
+        [InlineKeyboardButton('Настроить уведомления', callback_data="Настроить уведомления")],
+        [InlineKeyboardButton('Почитать комикс о важном', callback_data="Zero")],
+        [InlineKeyboardButton('Оставить фидбэк', callback_data="Zero")]
     ]
     markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
     send_photo_with_caption(update, context, caption, markup)
@@ -678,31 +708,47 @@ def menu(update, context):
 
 # Точка входа
 def start(update, context):
+    global first_session
     keyboard = [
-        [
-            InlineKeyboardButton('Учусь в 10 классе', callback_data="Учусь в 10 классе"),
-            InlineKeyboardButton('Учусь в 11 классе', callback_data="Учусь в 11 классе"),
-        ],
-        [InlineKeyboardButton('У меня gap year', callback_data="У меня gap year"),
-        InlineKeyboardButton('На разведке', callback_data="На разведке")]
+            [InlineKeyboardButton('Погодите, как вы собрались меня готовить?', callback_data="Преамбула")]
     ]
     markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
     name = update.message.chat.first_name
-    caption = '''Здравствуй, {name}!
+    first_session = True
+    caption = '''Привет, {name}! 👋
+    
+Если ты ищешь лучший способ подготовиться к ЕГЭ по биологии — поздравляем, вот он!'''.format(name=name)
+    send_photo_with_caption(update, context, caption, markup)
 
-Мы — Ив и Ник — поможем тебе подготовиться к ЕГЭ по биологии. 
-Для этого у нас есть:
 
-🪼 конспекты по всем темам кодификатора
-🪼 тренажёр для отработки заданий из банка ФИПИ
+def advent(update, context):
+    caption = '''Для подготовки у нас есть:
+    
+🍀 Конспекты по всем темам кодификатора
+🍀 Тренажёр для отработки заданий из банка ФИПИ
+🍀 Квесты вместо тестов'''
+    send_photo_with_caption(update, context, caption)
+    caption = '''Скажем сразу: ЕГЭ по биологии — серьёзный экзамен. К нему не подготовиться с нуля на 90+ баллов за месяц.
 
-Расскажешь о себе?'''.format(name=name)
+На освоение теории у тебя уйдёт ~Х часов, на отработку заданий — ~Y часов. Ещё нужно заложить пару месяцев на восполнение пробелов в знаниях и прорешивание вариантов из сборника ФИПИ.
+
+🍀 Если ты в 10 классе, изучай по одному конспекту в неделю и каждый день решай 10 заданий по теме конспекта (и всем изученным прежде)
+🍀 Если ты в 11 классе, изучай по два конспекта в неделю и каждый день решай 20 заданий по темам конспектов (и всем изученным прежде)'''
+    send_photo_with_caption(update, context, caption)
+    keyboard = [
+        [InlineKeyboardButton('Было бы славно (Начать квест)', callback_data="Квест Первый день")],
+        [InlineKeyboardButton('В меню', callback_data='В меню')]
+    ]
+    markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=False)
+    caption = '''В общем-то, это все инструкции. Приступай хоть сейчас.
+
+А впрочем, у нас есть ещё 20 минут до начала рабочего дня, можем повести тебе экскурсию по БиБу и заодно познакомиться поближе. Что скажешь?'''
     send_photo_with_caption(update, context, caption, markup)
 
 
 # основная
 def main():
-    updater = Updater("7944892380:AAGKYP--CEiTaNtj4JAAlBWrw1MpX0sqOKs", use_context=True)
+    updater = Updater("7680944125:AAFOtGfVXlE8rN3yrbxS6vwRYuddmEJEX7Q", use_context=True)
     dp = updater.dispatcher
     scheduler_thread = Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
